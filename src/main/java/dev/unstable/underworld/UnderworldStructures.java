@@ -34,7 +34,7 @@ final class UnderworldStructures {
     private static final BlockState BARS = Blocks.IRON_BARS.defaultBlockState();
     private static final BlockState CHEST = Blocks.CHEST.defaultBlockState();
     private static final BlockState SCULK = Blocks.SCULK.defaultBlockState();
-    private static final BlockState CHAIN = Blocks.CHAIN.defaultBlockState();
+    private static final BlockState CHAIN = BARS;
     private static final BlockState OBSIDIAN = Blocks.OBSIDIAN.defaultBlockState();
     private static final BlockState PORTAL = Blocks.NETHER_PORTAL.defaultBlockState()
             .setValue(NetherPortalBlock.AXIS, Direction.Axis.X);
