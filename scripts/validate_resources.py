@@ -2,11 +2,26 @@
 import json
 from pathlib import Path
 
+def read_checked_json(path: Path):
+    """Report the exact offending resource instead of a filename-free traceback."""
+    content = path.read_text(encoding='utf-8-sig')
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as exc:
+        lines = content.splitlines()
+        print(f"\nINVALID JSON FILE: {path}", flush=True)
+        print(f"ERROR: {exc.msg} (line {exc.lineno}, column {exc.colno}, char {exc.pos})", flush=True)
+        for idx in range(max(1, exc.lineno - 3), min(len(lines), exc.lineno + 3) + 1):
+            print(f"{idx:4}: {lines[idx-1][:180]}", flush=True)
+        if exc.msg == 'Extra data':
+            print("HINT: Remove any second JSON object or trailing text after the first JSON value.", flush=True)
+        raise SystemExit(1) from exc
+
 root = Path(__file__).resolve().parents[1]
 res = root / 'src/main/resources'
-dim = json.loads((res / 'data/underworld/dimension/underworld.json').read_text())
-type_ = json.loads((res / 'data/underworld/dimension_type/underworld.json').read_text())
-biome = json.loads((res / 'data/underworld/worldgen/biome/wasteland.json').read_text())
+dim = read_checked_json(res / 'data/underworld/dimension/underworld.json')
+type_ = read_checked_json(res / 'data/underworld/dimension_type/underworld.json')
+biome = read_checked_json(res / 'data/underworld/worldgen/biome/wasteland.json')
 java = root / 'src/main/java/dev/unstable/underworld'
 mod = (java / 'UnderworldMod.java').read_text()
 terrain = (java / 'UnderworldTerrain.java').read_text()
@@ -46,18 +61,40 @@ assert 'portalPiece' in structures and 'hasRarePortal' in structures
 assert 'UnderworldMath.structureSite(cx, cz, seed, radius(kind))' in structures
 for name in ('gate(', 'shrine(', 'tower(', 'citadel(', 'mausoleum(', 'shatteredArchive(', 'fracturedBridge(', 'forgottenMarket('):
     assert name in structures
-assert 'mod_version=3.3.0' in properties
-assert 'unstable-underworld-3.3.0.jar' in workflow
+assert 'mod_version=3.3.2' in properties
+assert 'unstable-underworld-3.3.2.jar' in workflow
 assert not (res / 'data/minecraft/dimension/the_nether.json').exists()
 assert not (res / 'data/minecraft/dimension_type/the_nether.json').exists()
 for path in root.rglob('*.json'):
-    json.loads(path.read_text())
+    read_checked_json(path)
 lootfile = res / 'data/underworld/loot_table/chests/forgotten_relics.json'
-loot = json.loads(lootfile.read_text())
+loot = read_checked_json(lootfile)
 assert loot['type'] == 'minecraft:chest' and len(loot['pools']) >= 3
+# Minecraft Java 26.3 changed loot entry fields functions -> modifier,
+# and modifier function -> type. JSON parsing alone DOES NOT catch this.
+# Reject the old schema so GitHub fails before publishing a broken mod.
+for pool in loot['pools']:
+    assert 'functions' not in pool and 'conditions' not in pool, "Legacy loot pool schema (26.2)"
+    assert isinstance(pool['entries'], list) and pool['entries']
+    for entry in pool['entries']:
+        assert 'functions' not in entry and 'conditions' not in entry, "Legacy loot entry schema (26.2)"
+        if 'modifier' in entry:
+            modifiers = entry['modifier'] if isinstance(entry['modifier'], list) else [entry['modifier']]
+            assert modifiers, "Empty modifier"
+            for modifier in modifiers:
+                assert isinstance(modifier, dict) and 'type' in modifier, "Invalid 26.3 modifier"
+                assert 'function' not in modifier and 'conditions' not in modifier, "Legacy 26.2 function schema"
+                if modifier['type'] == 'minecraft:set_count':
+                    assert 'count' in modifier, "set_count missing count"
 entries = [e['name'] for pool in loot['pools'] for e in pool['entries'] if e['type']=='minecraft:item']
 for item in ('minecraft:echo_shard', 'minecraft:sculk_sensor', 'minecraft:gilded_blackstone', 'minecraft:ancient_debris'):
     assert item in entries
+# In Minecraft 1.21.9+ the chain item was renamed from chain to iron_chain.
+# A syntactically valid loot table containing the old ID can fail world datapack loading.
+assert 'minecraft:chain' not in entries, 'Invalid 26.3 item identifier minecraft:chain; use minecraft:iron_chain'
+assert 'minecraft:iron_chain' in entries
+assert all(isinstance(e.get('name'), str) and e['name'].startswith('minecraft:')
+           for p in loot['pools'] for e in p['entries'] if e['type'] == 'minecraft:item')
 assert (java / 'UnderworldPlacement.java').exists()
 assert 'PlacementTest' in workflow
 print('PASS: empty dimension, Nether sky, 30-block terrain, void death, randomized ruins, rare portals, loot, migrations and packaging')
